@@ -4,13 +4,32 @@ const dict_bound = {
 };
 
 const stopList = {};
-let watchedStops = new Set(); // Store watched stop IDs
+let watchedStops = {}; // Store watched stop IDs
 var selectedRoute = "";
 var selectedBound = "";
+var selectedStopName = "";
+
+function isEmpty(obj) {
+    for (const prop in obj) {
+      if (Object.hasOwn(obj, prop)) {
+        return false;
+      }
+    }
+  
+    return true;
+  }
 
 document.addEventListener('DOMContentLoaded', function () {
+    watchedStops = JSON.parse(localStorage.getItem('watchList'));
+    if(!isEmpty(watchedStops)) {
+        const watchList = document.getElementById('watch-list');
+        console.log('watchedStops',watchedStops);
+        for(const stopId in watchedStops) {
+            watchList.appendChild(constructWatchList(stopId));
+        }
+    }
     // Fetch JSON Data
-    fetch('https://data.etabus.gov.hk/v1/transport/kmb/route') // Replace with the actual API endpoint
+    fetch('https://data.etabus.gov.hk/v1/transport/kmb/route')
         .then(response => response.json())
         .then(data => {
             if (data.type === "RouteList" && Array.isArray(data.data)) {
@@ -19,7 +38,7 @@ document.addEventListener('DOMContentLoaded', function () {
         })
         .catch(error => console.error('Error fetching route data:', error));
 
-    fetch('https://data.etabus.gov.hk/v1/transport/kmb/stop') // Replace with the actual API endpoint
+    fetch('https://data.etabus.gov.hk/v1/transport/kmb/stop')
         .then(response => response.json())
         .then(data => {
             if (data.type === "StopList" && Array.isArray(data.data)) {
@@ -35,6 +54,69 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         })
         .catch(error => console.error('Error fetching stop data:', error));
+
+    // Function to calculate and display arrival times
+    function displayArrivalTimes(container, bound, arrivals) {
+        const now = new Date(); // Current time for reference
+        container.innerHTML = ''; // Clear previous content
+
+        arrivals.forEach(arrival => {
+            if (dict_bound[arrival.dir] == bound) {
+                const etaTime = new Date(arrival.eta);
+                const dataTimestamp = new Date(arrival.data_timestamp);
+
+                // Calculate the time difference in minutes
+                const timeDifference = Math.round((etaTime - dataTimestamp) / (1000 * 60));
+
+                // Create arrival time display
+                const arrivalItem = document.createElement('div');
+                arrivalItem.className = 'arrival-item mb-2';
+                arrivalItem.innerHTML = `
+                    <div>
+                        <strong>ETA:</strong> ${timeDifference > 0 ? `${timeDifference} min` : 'Arriving now'}
+                        ${arrival.rmk_en ? `<em>(${arrival.rmk_en})</em>` : ''}
+                    </div>
+                `;
+
+                container.appendChild(arrivalItem);
+            }
+            
+        });
+
+        // If no arrivals are found
+        if (arrivals.length === 0) {
+            container.innerHTML = '<div class="text-muted">No upcoming arrivals.</div>';
+        }
+    }
+
+    function constructWatchList(stopId) {
+        const watchItem = document.createElement('div');
+        const watchItemChild = document.createElement('div');
+        watchItemChild.className = 'card-body';
+        watchItem.className = 'card';
+        watchItemChild.dataset.stopId = stopId;
+        watchItemChild.innerHTML = `
+            <h5 class="card-title">Route: ${watchedStops[stopId].route} - ${watchedStops[stopId].name}</h5>
+                <div class="arrival-items">
+                    Loading arrival times...
+                </div>
+        `;
+        watchItem.appendChild(watchItemChild)
+        loadStopETA(stopId, watchedStops[stopId].route, watchItemChild);
+        return watchItem;
+    }
+
+    function loadStopETA(stopId, route, container) {
+        // Fetch arrival times for the stop
+        fetch(`https://data.etabus.gov.hk/v1/transport/kmb/eta/${stopId}/${route}/1`) // Replace with actual endpoint
+            .then(response => response.json())
+            .then(arrivalData => {
+                if (Array.isArray(arrivalData.data)) {
+                    displayArrivalTimes(container.querySelector('.arrival-items'), watchedStops[stopId].bound, arrivalData.data);
+                }
+            })
+            .catch(error => console.error('Error fetching arrival times:', error));
+    }
 
     function initializeDropdown(routes) {
         const dropdownList = document.getElementById('dropdownList');
@@ -75,6 +157,7 @@ document.addEventListener('DOMContentLoaded', function () {
                 const bound = li.dataset.bound;
                 selectedRoute = route;
                 selectedBound = bound;
+                selectedStopName = li.dataset.dest;
 
                 // Fetch the stop list for the selected route
                 fetch(`https://data.etabus.gov.hk/v1/transport/kmb/route-stop/${route}/${bound}/1`)
@@ -113,6 +196,24 @@ document.addEventListener('DOMContentLoaded', function () {
                                 </div>
                             </div>
                         `;
+                        if (watchedStops.hasOwnProperty(stopId.stop)) {
+                            item.innerHTML = `
+                            <h2 class="accordion-header" id="heading${index}">
+                                <div class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapse${index}" aria-expanded="false" aria-controls="collapse${index}">
+                                    ${stopInfo.name_tc}
+                                    <button class="btn active btn-outline-primary ms-auto me-2 add-watch-btn" data-bs-toggle="collapse" data-bs-target data-stop-id="${stopId.stop}"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-bookmark-heart" viewBox="0 0 16 16">
+  <path fill-rule="evenodd" d="M8 4.41c1.387-1.425 4.854 1.07 0 4.277C3.146 5.48 6.613 2.986 8 4.412z"/>
+  <path d="M2 2a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v13.5a.5.5 0 0 1-.777.416L8 13.101l-5.223 2.815A.5.5 0 0 1 2 15.5zm2-1a1 1 0 0 0-1 1v12.566l4.723-2.482a.5.5 0 0 1 .554 0L13 14.566V2a1 1 0 0 0-1-1z"/>
+</svg></button>
+                                </div>
+                            </h2>
+                            <div id="collapse${index}" class="accordion-collapse collapse" aria-labelledby="heading${index}" data-bs-parent="#stopAccordion">
+                                <div class="accordion-body">
+                                    Loading arrival times...
+                                </div>
+                            </div>
+                        `;
+                        }
                         stopAccordion.appendChild(item);
                 }
             });
@@ -131,12 +232,18 @@ document.addEventListener('DOMContentLoaded', function () {
                     const watchButton = event.target.closest('.add-watch-btn');
                     if (watchButton) {
                         const stopId = watchButton.dataset.stopId;
-                        if (watchedStops.has(stopId)) {
-                            watchedStops.delete(stopId);
+                        if (watchedStops.hasOwnProperty(stopId)) {
+                            delete watchedStops[stopId];
                             watchButton.classList.remove('active');
+                            localStorage.setItem('watchList', JSON.stringify(watchedStops));
                         } else {
-                            watchedStops.add(stopId);
+                            watchedStops[stopId] = {
+                                route: selectedRoute,
+                                bound: selectedBound,
+                                name: selectedStopName
+                            };
                             watchButton.classList.add('active');
+                            localStorage.setItem('watchList', JSON.stringify(watchedStops));
                         }
 
                     }
@@ -153,46 +260,14 @@ document.addEventListener('DOMContentLoaded', function () {
                         .then(response => response.json())
                         .then(arrivalData => {
                             if (Array.isArray(arrivalData.data)) {
-                                displayArrivalTimes(event.target.querySelector('.accordion-body'), arrivalData.data);
+                                displayArrivalTimes(event.target.querySelector('.accordion-body'), selectedBound, arrivalData.data);
                             }
                         })
                         .catch(error => console.error('Error fetching arrival times:', error));
                 });
             });
 
-            // Function to calculate and display arrival times
-            function displayArrivalTimes(container, arrivals) {
-                const now = new Date(); // Current time for reference
-                container.innerHTML = ''; // Clear previous content
-
-                arrivals.forEach(arrival => {
-                    if (dict_bound[arrival.dir] == selectedBound) {
-                        const etaTime = new Date(arrival.eta);
-                        const dataTimestamp = new Date(arrival.data_timestamp);
-
-                        // Calculate the time difference in minutes
-                        const timeDifference = Math.round((etaTime - dataTimestamp) / (1000 * 60));
-
-                        // Create arrival time display
-                        const arrivalItem = document.createElement('div');
-                        arrivalItem.className = 'arrival-item mb-2';
-                        arrivalItem.innerHTML = `
-                            <div>
-                                <strong>ETA:</strong> ${timeDifference > 0 ? `${timeDifference} min` : 'Arriving now'}
-                                ${arrival.rmk_en ? `<em>(${arrival.rmk_en})</em>` : ''}
-                            </div>
-                        `;
-
-                        container.appendChild(arrivalItem);
-                    }
-                    
-                });
-
-                // If no arrivals are found
-                if (arrivals.length === 0) {
-                    container.innerHTML = '<div class="text-muted">No upcoming arrivals.</div>';
-                }
-            }
+            
         }
     }
 });
