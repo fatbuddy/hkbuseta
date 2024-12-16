@@ -23,7 +23,6 @@ document.addEventListener('DOMContentLoaded', function () {
     watchedStops = JSON.parse(localStorage.getItem('watchList'));
     if(!isEmpty(watchedStops)) {
         const watchList = document.getElementById('watch-list');
-        console.log('watchedStops',watchedStops);
         for(const stopId in watchedStops) {
             watchList.appendChild(constructWatchList(stopId));
         }
@@ -143,8 +142,6 @@ document.addEventListener('DOMContentLoaded', function () {
 
             items.forEach(item => {
                 const route = item.parentElement.dataset.route; // Get route data
-                console.log('Item', item);
-                console.log('Route', route);
                 item.style.display = route.includes(query) ? '' : 'none';
             });
         });
@@ -196,7 +193,7 @@ document.addEventListener('DOMContentLoaded', function () {
                                 </div>
                             </div>
                         `;
-                        if (watchedStops.hasOwnProperty(stopId.stop)) {
+                        if (watchedStops && watchedStops.hasOwnProperty(stopId.stop)) {
                             item.innerHTML = `
                             <h2 class="accordion-header" id="heading${index}">
                                 <div class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapse${index}" aria-expanded="false" aria-controls="collapse${index}">
