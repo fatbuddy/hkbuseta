@@ -26,6 +26,8 @@ document.addEventListener('DOMContentLoaded', function () {
         for(const stopId in watchedStops) {
             watchList.appendChild(constructWatchList(stopId));
         }
+    } else {
+        watchedStops = {};
     }
     // Fetch JSON Data
     fetch('https://data.etabus.gov.hk/v1/transport/kmb/route')
