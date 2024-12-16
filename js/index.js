@@ -229,7 +229,7 @@ document.addEventListener('DOMContentLoaded', function () {
                     const watchButton = event.target.closest('.add-watch-btn');
                     if (watchButton) {
                         const stopId = watchButton.dataset.stopId;
-                        if (watchedStops.hasOwnProperty(stopId)) {
+                        if (watchedStops && watchedStops.hasOwnProperty(stopId)) {
                             delete watchedStops[stopId];
                             watchButton.classList.remove('active');
                             localStorage.setItem('watchList', JSON.stringify(watchedStops));
