@@ -17,9 +17,36 @@ function isEmpty(obj) {
     }
   
     return true;
-  }
+}
+
+function fetchWithRetry(url, options = {}, retries = 3, delay = 1000) {
+    return new Promise((resolve, reject) => {
+        const attempt = (currentRetry) => {
+            fetch(url, options)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP Error! Status: ${response.status}`);
+                    }
+                    resolve(response.json());
+                })
+                .catch(error => {
+                    if (currentRetry > 0) {
+                        console.warn(`Retrying... (${currentRetry} retries left)`);
+                        setTimeout(() => attempt(currentRetry - 1), delay);
+                    } else {
+                        reject(error); // Exhausted retries, reject the promise
+                    }
+                });
+        };
+        attempt(retries);
+    });
+}
 
 document.addEventListener('DOMContentLoaded', function () {
+    let modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('staticBackdrop')) // Returns a Bootstrap modal instance
+
+    modal.show();
+    
     watchedStops = JSON.parse(localStorage.getItem('watchList'));
     if(!isEmpty(watchedStops)) {
         const watchList = document.getElementById('watch-list');
@@ -30,31 +57,53 @@ document.addEventListener('DOMContentLoaded', function () {
         watchedStops = {};
     }
     // Fetch JSON Data
-    fetch('https://data.etabus.gov.hk/v1/transport/kmb/route')
-        .then(response => response.json())
-        .then(data => {
-            if (data.type === "RouteList" && Array.isArray(data.data)) {
-                initializeDropdown(data.data);
-            }
+    const routeTask = new Promise((resolve, reject) => {
+        fetchWithRetry('https://data.etabus.gov.hk/v1/transport/kmb/route', {}, 3, 1000)
+            .then(data => {
+                if (data.type === "RouteList" && Array.isArray(data.data)) {
+                    initializeDropdown(data.data);
+                }
+                resolve();
+            })
+            .catch(error => {
+                console.error('Failed to fetch data after retries:', error);
+                reject(error);
+            });
+        });
+    
+    const stopTask = new Promise((resolve, reject) => {
+        fetchWithRetry('https://data.etabus.gov.hk/v1/transport/kmb/stop', {}, 3, 1000)
+            .then(data => {
+                if (data.type === "StopList" && Array.isArray(data.data)) {
+                    data.data.forEach(stop => {
+                        console.log('stop', stop);
+                        stopList[stop.stop] = {
+                            name_en: stop.name_en,
+                            name_tc: stop.name_tc,
+                            name_sc: stop.name_sc,
+                            lat: stop.lat,
+                            long: stop.long
+                        };
+                    });
+                }
+                resolve();
+            })
+            .catch(error => {
+                console.error('Failed to fetch data after retries:', error);
+                reject(error);
+            });
+        });
+    
+    Promise.all([routeTask, stopTask])
+        .then(() => {
+            let modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('staticBackdrop')) // Returns a Bootstrap modal instance
+            modal.hide();
+            console.log('hiding');
         })
-        .catch(error => console.error('Error fetching route data:', error));
-
-    fetch('https://data.etabus.gov.hk/v1/transport/kmb/stop')
-        .then(response => response.json())
-        .then(data => {
-            if (data.type === "StopList" && Array.isArray(data.data)) {
-                data.data.forEach(stop => {
-                    stopList[stop.stop] = {
-                        name_en: stop.name_en,
-                        name_tc: stop.name_tc,
-                        name_sc: stop.name_sc,
-                        lat: stop.lat,
-                        long: stop.long
-                    };
-                });
-            }
-        })
-        .catch(error => console.error('Error fetching stop data:', error));
+        .catch((error) => {
+            console.error("One of the promises failed:", error);
+            alert(error);
+        });
 
     // Function to calculate and display arrival times
     function displayArrivalTimes(container, bound, arrivals) {
@@ -150,6 +199,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
         dropdownList.addEventListener('click', function (event) {
             if (event.target.classList.contains('dropdown-item')) {
+                modal.show();
                 const li = event.target.parentElement; // Get the parent <li> element
                 dropdownSearch.value = li.dataset.route; // Set text field value
                 const route = li.dataset.route;
@@ -165,6 +215,7 @@ document.addEventListener('DOMContentLoaded', function () {
                         if (Array.isArray(stopData.data)) {
                             displayStops(stopData.data, stopList, stopOutput);
                         }
+                        modal.hide();
                     })
                     .catch(error => console.error('Error fetching stops for route:', error));
             }
