@@ -59,7 +59,7 @@ document.addEventListener('DOMContentLoaded', function () {
     }
     // Fetch JSON Data
     const routeKMBTask = new Promise((resolve, reject) => {
-        fetchWithRetry('/json/kmb_routes.json', {}, 3, 1000)
+        fetchWithRetry('../json/kmb_routes.json', {}, 3, 1000)
             .then(data => {
                 if (data.type === "RouteList" && Array.isArray(data.data)) {
                     // initializeDropdown(data.data);
@@ -76,7 +76,7 @@ document.addEventListener('DOMContentLoaded', function () {
         });
 
     const routeCTBTask = new Promise((resolve, reject) => {
-        fetchWithRetry('/json/citybus_routes.json', {}, 3, 1000)
+        fetchWithRetry('../json/citybus_routes.json', {}, 3, 1000)
             .then(data => {
                 if (data.type === "RouteList" && Array.isArray(data.data)) {
                     // initializeDropdown(data.data);
@@ -92,7 +92,7 @@ document.addEventListener('DOMContentLoaded', function () {
         });  
     
     const stopTask = new Promise((resolve, reject) => {
-        fetchWithRetry('/json/kmb_stops.json', {}, 3, 1000)
+        fetchWithRetry('../json/kmb_stops.json', {}, 3, 1000)
             .then(data => {
                 if (data.type === "StopList" && Array.isArray(data.data)) {
                     data.data.forEach(stop => {
@@ -114,7 +114,7 @@ document.addEventListener('DOMContentLoaded', function () {
         });
 
     const stopCityTask = new Promise((resolve, reject) => {
-        fetchWithRetry('/json/citybus_stops.json', {}, 3, 1000)
+        fetchWithRetry('../json/citybus_stops.json', {}, 3, 1000)
             .then(data => {
                 if (data.type === "StopList" && Array.isArray(data.data)) {
                     data.data.forEach(stop => {
