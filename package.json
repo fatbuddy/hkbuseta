@@ -12,5 +12,8 @@
   "devDependencies": {
     "gulp": "^5.0.0",
     "gulp-inline-source": "^4.0.0"
+  },
+  "dependencies": {
+    "axios": "^1.7.9"
   }
 }

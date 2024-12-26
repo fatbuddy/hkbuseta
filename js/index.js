@@ -8,6 +8,7 @@ let watchedStops = {}; // Store watched stop IDs
 var selectedRoute = "";
 var selectedBound = "";
 var selectedStopName = "";
+var selectedCTB = 0;
 
 function isEmpty(obj) {
     for (const prop in obj) {
@@ -57,26 +58,44 @@ document.addEventListener('DOMContentLoaded', function () {
         watchedStops = {};
     }
     // Fetch JSON Data
-    const routeTask = new Promise((resolve, reject) => {
-        fetchWithRetry('https://data.etabus.gov.hk/v1/transport/kmb/route', {}, 3, 1000)
+    const routeKMBTask = new Promise((resolve, reject) => {
+        fetchWithRetry('/json/kmb_routes.json', {}, 3, 1000)
             .then(data => {
                 if (data.type === "RouteList" && Array.isArray(data.data)) {
-                    initializeDropdown(data.data);
+                    // initializeDropdown(data.data);
+                    resolve(data.data);
+                } else {
+                    reject('Not Found');
                 }
-                resolve();
+                
             })
             .catch(error => {
                 console.error('Failed to fetch data after retries:', error);
                 reject(error);
             });
         });
+
+    const routeCTBTask = new Promise((resolve, reject) => {
+        fetchWithRetry('/json/citybus_routes.json', {}, 3, 1000)
+            .then(data => {
+                if (data.type === "RouteList" && Array.isArray(data.data)) {
+                    // initializeDropdown(data.data);
+                    resolve(prepareCTBData(data.data));
+                } else {
+                    reject('Not Found');
+                }
+            })
+            .catch(error => {
+                console.error('Failed to fetch data after retries:', error);
+                reject(error);
+            });
+        });  
     
     const stopTask = new Promise((resolve, reject) => {
-        fetchWithRetry('https://data.etabus.gov.hk/v1/transport/kmb/stop', {}, 3, 1000)
+        fetchWithRetry('/json/kmb_stops.json', {}, 3, 1000)
             .then(data => {
                 if (data.type === "StopList" && Array.isArray(data.data)) {
                     data.data.forEach(stop => {
-                        console.log('stop', stop);
                         stopList[stop.stop] = {
                             name_en: stop.name_en,
                             name_tc: stop.name_tc,
@@ -93,9 +112,34 @@ document.addEventListener('DOMContentLoaded', function () {
                 reject(error);
             });
         });
+
+    const stopCityTask = new Promise((resolve, reject) => {
+        fetchWithRetry('/json/citybus_stops.json', {}, 3, 1000)
+            .then(data => {
+                if (data.type === "StopList" && Array.isArray(data.data)) {
+                    data.data.forEach(stop => {
+                        stopList[stop.stop] = {
+                            name_en: stop.name_en,
+                            name_tc: stop.name_tc,
+                            name_sc: stop.name_sc,
+                            lat: stop.lat,
+                            long: stop.long
+                        };
+                    });
+                }
+                resolve();
+            })
+            .catch(error => {
+                console.error('Failed to fetch data after retries:', error);
+                reject(error);
+            });
+        });
+
     
-    Promise.all([routeTask, stopTask])
-        .then(() => {
+    Promise.all([routeKMBTask, routeCTBTask, stopTask, stopCityTask])
+        .then((result) => {
+            const routeArray = result[0].concat(result[1]);
+            initializeDropdown(routeArray);
             let modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('staticBackdrop')) // Returns a Bootstrap modal instance
             modal.hide();
             console.log('hiding');
@@ -146,19 +190,23 @@ document.addEventListener('DOMContentLoaded', function () {
         watchItem.className = 'card';
         watchItemChild.dataset.stopId = stopId;
         watchItemChild.innerHTML = `
-            <h5 class="card-title">Route: ${watchedStops[stopId].route} - ${watchedStops[stopId].name}</h5>
+            <h5 class="card-title">Route: ${watchedStops[stopId].route} - ${watchedStops[stopId].routeName} - ${watchedStops[stopId].name}</h5>
                 <div class="arrival-items">
                     Loading arrival times...
                 </div>
         `;
         watchItem.appendChild(watchItemChild)
-        loadStopETA(stopId, watchedStops[stopId].route, watchItemChild);
+        loadStopETA(stopId, watchedStops[stopId].route, watchItemChild, watchedStops[stopId].ctb);
         return watchItem;
     }
 
-    function loadStopETA(stopId, route, container) {
+    function loadStopETA(stopId, route, container, ctb = 0) {
+        var url = `https://data.etabus.gov.hk/v1/transport/kmb/eta/${stopId}/${route}/1`;
+        if (ctb) {
+            url = `https://rt.data.gov.hk/v2/transport/citybus/eta/CTB/${stopId}/${route}`;
+        }
         // Fetch arrival times for the stop
-        fetch(`https://data.etabus.gov.hk/v1/transport/kmb/eta/${stopId}/${route}/1`) // Replace with actual endpoint
+        fetch(url) // Replace with actual endpoint
             .then(response => response.json())
             .then(arrivalData => {
                 if (Array.isArray(arrivalData.data)) {
@@ -166,6 +214,28 @@ document.addEventListener('DOMContentLoaded', function () {
                 }
             })
             .catch(error => console.error('Error fetching arrival times:', error));
+    }
+
+    function prepareCTBData(routes) {
+        const result = [];
+        routes.forEach(route => {
+            result.push({
+                dest_tc: route.orig_tc,
+                orig_tc: route.dest_tc,
+                bound: "I",
+                route: route.route,
+                co: route.co
+            });
+            result.push({
+                dest_tc: route.dest_tc,
+                orig_tc: route.orig_tc,
+                bound: "O",
+                route: route.route,
+                co: route.co
+            });
+        });
+
+        return result;
     }
 
     function initializeDropdown(routes) {
@@ -180,9 +250,13 @@ document.addEventListener('DOMContentLoaded', function () {
             li.dataset.route = route.route.toUpperCase(); // Store lowercase route for easy filtering
             li.dataset.dest = route.dest_tc;              // Optional, if needed later
             li.dataset.bound = dict_bound[route.bound];
-            if (route.service_type == "1") {
-                dropdownList.appendChild(li);
+            li.dataset.ctb = 0;
+            if (route.hasOwnProperty('co')) {
+                li.dataset.ctb = 1;
             }
+            // if (route.service_type == "1") {
+            dropdownList.appendChild(li);
+            // }
                 
         });
 
@@ -207,22 +281,28 @@ document.addEventListener('DOMContentLoaded', function () {
                 selectedRoute = route;
                 selectedBound = bound;
                 selectedStopName = li.dataset.dest;
-
+                selectedCTB = li.dataset.ctb;
+                var url = `https://data.etabus.gov.hk/v1/transport/kmb/route-stop/${route}/${bound}/1`;
+                if (li.dataset.ctb) {
+                    url = `https://rt.data.gov.hk/v2/transport/citybus/route-stop/CTB/${route}/${bound}`;
+                }
                 // Fetch the stop list for the selected route
-                fetch(`https://data.etabus.gov.hk/v1/transport/kmb/route-stop/${route}/${bound}/1`)
-                    .then(response => response.json())
-                    .then(stopData => {
-                        if (Array.isArray(stopData.data)) {
-                            displayStops(stopData.data, stopList, stopOutput);
-                        }
-                        modal.hide();
-                    })
-                    .catch(error => console.error('Error fetching stops for route:', error));
+                fetch(url)
+                .then(response => response.json())
+                .then(stopData => {
+                    if (Array.isArray(stopData.data)) {
+                        displayStops(stopData.data, stopList, stopOutput, selectedCTB);
+                    }
+                    modal.hide();
+                })
+                .catch(error => console.error('Error fetching stops for route:', error));
+                
+                
             }
         });
 
         // Display stop names below the dropdown
-        function displayStops(stopIds, stopList, outputElement) {
+        function displayStops(stopIds, stopList, outputElement, ctb = 0) {
             const stopAccordion = document.getElementById('stopAccordion');
             stopAccordion.innerHTML = ''; // Clear previous items
             stopIds.forEach((stopId, index) => {
@@ -234,7 +314,7 @@ document.addEventListener('DOMContentLoaded', function () {
                             <h2 class="accordion-header" id="heading${index}">
                                 <div class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapse${index}" aria-expanded="false" aria-controls="collapse${index}">
                                     ${stopInfo.name_tc}
-                                    <button class="btn btn-outline-primary ms-auto me-2 add-watch-btn" data-bs-toggle="collapse" data-bs-target data-stop-id="${stopId.stop}"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-bookmark-heart" viewBox="0 0 16 16">
+                                    <button class="btn btn-outline-primary ms-auto me-2 add-watch-btn" data-bs-toggle="collapse" data-bs-target data-stop-name="${stopInfo.name_tc}" data-stop-id="${stopId.stop}"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-bookmark-heart" viewBox="0 0 16 16">
   <path fill-rule="evenodd" d="M8 4.41c1.387-1.425 4.854 1.07 0 4.277C3.146 5.48 6.613 2.986 8 4.412z"/>
   <path d="M2 2a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v13.5a.5.5 0 0 1-.777.416L8 13.101l-5.223 2.815A.5.5 0 0 1 2 15.5zm2-1a1 1 0 0 0-1 1v12.566l4.723-2.482a.5.5 0 0 1 .554 0L13 14.566V2a1 1 0 0 0-1-1z"/>
 </svg></button>
@@ -251,7 +331,7 @@ document.addEventListener('DOMContentLoaded', function () {
                             <h2 class="accordion-header" id="heading${index}">
                                 <div class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapse${index}" aria-expanded="false" aria-controls="collapse${index}">
                                     ${stopInfo.name_tc}
-                                    <button class="btn active btn-outline-primary ms-auto me-2 add-watch-btn" data-bs-toggle="collapse" data-bs-target data-stop-id="${stopId.stop}"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-bookmark-heart" viewBox="0 0 16 16">
+                                    <button class="btn active btn-outline-primary ms-auto me-2 add-watch-btn" data-bs-toggle="collapse" data-bs-target data-stop-name="${stopInfo.name_tc}" data-stop-id="${stopId.stop}"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-bookmark-heart" viewBox="0 0 16 16">
   <path fill-rule="evenodd" d="M8 4.41c1.387-1.425 4.854 1.07 0 4.277C3.146 5.48 6.613 2.986 8 4.412z"/>
   <path d="M2 2a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v13.5a.5.5 0 0 1-.777.416L8 13.101l-5.223 2.815A.5.5 0 0 1 2 15.5zm2-1a1 1 0 0 0-1 1v12.566l4.723-2.482a.5.5 0 0 1 .554 0L13 14.566V2a1 1 0 0 0-1-1z"/>
 </svg></button>
@@ -290,7 +370,9 @@ document.addEventListener('DOMContentLoaded', function () {
                             watchedStops[stopId] = {
                                 route: selectedRoute,
                                 bound: selectedBound,
-                                name: selectedStopName
+                                routeName: selectedStopName,
+                                name: watchButton.dataset.stopName,
+                                ctb: selectedCTB
                             };
                             watchButton.classList.add('active');
                             localStorage.setItem('watchList', JSON.stringify(watchedStops));
@@ -305,8 +387,9 @@ document.addEventListener('DOMContentLoaded', function () {
                 body.addEventListener('shown.bs.collapse', function (event) {
                     const stopId = event.target.previousElementSibling.querySelector('.add-watch-btn').dataset.stopId;
 
-                    // Fetch arrival times for the stop
-                    fetch(`https://data.etabus.gov.hk/v1/transport/kmb/eta/${stopId}/${selectedRoute}/1`) // Replace with actual endpoint
+                    if (selectedCTB) {
+                        // Fetch arrival times for the stop
+                        fetch(`https://rt.data.gov.hk/v2/transport/citybus/eta/CTB/${stopId}/${selectedRoute}`) // Replace with actual endpoint
                         .then(response => response.json())
                         .then(arrivalData => {
                             if (Array.isArray(arrivalData.data)) {
@@ -314,6 +397,18 @@ document.addEventListener('DOMContentLoaded', function () {
                             }
                         })
                         .catch(error => console.error('Error fetching arrival times:', error));
+                    } else {
+                        // Fetch arrival times for the stop
+                        fetch(`https://data.etabus.gov.hk/v1/transport/kmb/eta/${stopId}/${selectedRoute}/1`) // Replace with actual endpoint
+                        .then(response => response.json())
+                        .then(arrivalData => {
+                            if (Array.isArray(arrivalData.data)) {
+                                displayArrivalTimes(event.target.querySelector('.accordion-body'), selectedBound, arrivalData.data);
+                            }
+                    })
+                    .catch(error => console.error('Error fetching arrival times:', error));
+                    }
+                    
                 });
             });
 
